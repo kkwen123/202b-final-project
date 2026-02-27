@@ -1,0 +1,18 @@
+# Node
+node_modules/
+server/node_modules/
+server/dist/
+server/tmp/
+
+# Env and secrets
+.env
+server/.env
+firmware/config.h
+
+# OS/editor
+.DS_Store
+.vscode/
+.idea/
+
+# Logs
+npm-debug.log*
