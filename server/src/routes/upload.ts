@@ -125,7 +125,6 @@ export function createUploadRouter(deps: UploadRouterDependencies): Router {
       const transcript = await deps.openaiService.transcribe(req.file.path);
       const summary = await deps.openaiService.summarize(transcript);
       const notionResult = await deps.notionService.writeVoiceNote({
-        deviceId: validated.deviceId,
         noteId: validated.noteId,
         recordedAtUnixMs: validated.recordedAtUnixMs,
         durationMs: validated.durationMs,

@@ -91,12 +91,13 @@ Error response:
 Expected properties in your existing Notion database:
 
 - `Title` (title)
-- `Device ID` (rich_text)
 - `Recorded At` (date)
 - `Duration Sec` (number)
-- `Summary` (rich_text)
-- `Note ID` (rich_text)
-- `Status` (select)
+- `Summary` (text)
+- `Note ID` (text)
+- `Status` (select, include option `Processed`)
+
+Notion UI `Text` maps to API `rich_text`, so this is compatible with the backend payload.
 
 Transcript is stored as page content blocks.
 

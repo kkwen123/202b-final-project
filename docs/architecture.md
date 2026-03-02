@@ -43,6 +43,15 @@ flowchart LR
 - `NotionService`: metadata properties + transcript blocks write.
 - `CleanupService`: guaranteed temp-file delete.
 
+## Notion schema used by backend
+
+- `Title` (title)
+- `Recorded At` (date)
+- `Duration Sec` (number)
+- `Summary` (text in UI, sent as `rich_text` in API)
+- `Note ID` (text in UI, sent as `rich_text` in API)
+- `Status` (single `select`, value `Processed`)
+
 ## Constraints
 
 - Single-device class prototype.

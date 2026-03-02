@@ -10,6 +10,7 @@ interface NotionServiceOptions {
   apiKey: string;
   databaseId: string;
 }
+type VoiceNoteCreateRequest = Parameters<Client["pages"]["create"]>[0];
 
 const MAX_RICH_TEXT_CHARS = 1800;
 const MAX_BLOCK_CHARS = 1800;
@@ -53,42 +54,44 @@ function formatTitle(recordedAtUnixMs: number): string {
   return `Voice Note ${iso.replace("T", " ").slice(0, 19)}`;
 }
 
+export function buildVoiceNoteCreateRequest(input: NotionWriteInput, databaseId: string): VoiceNoteCreateRequest {
+  const recordedAt = new Date(input.recordedAtUnixMs);
+  const safeRecordedAt = Number.isNaN(recordedAt.valueOf()) ? new Date() : recordedAt;
+
+  return {
+    parent: { database_id: databaseId },
+    properties: {
+      Title: {
+        title: [{ type: "text", text: { content: formatTitle(input.recordedAtUnixMs) } }]
+      },
+      "Recorded At": {
+        date: { start: safeRecordedAt.toISOString() }
+      },
+      "Duration Sec": {
+        number: Math.round(input.durationMs / 1000)
+      },
+      Summary: {
+        rich_text: [{ type: "text", text: { content: truncate(input.summary, MAX_RICH_TEXT_CHARS) } }]
+      },
+      "Note ID": {
+        rich_text: [{ type: "text", text: { content: input.noteId } }]
+      },
+      Status: {
+        select: { name: "Processed" }
+      }
+    },
+    children: toTranscriptBlocks(input.transcript)
+  };
+}
+
 export function createNotionService(options: NotionServiceOptions): NotionService {
   const notion = new Client({ auth: options.apiKey });
 
   return {
     async writeVoiceNote(input: NotionWriteInput): Promise<NotionWriteResult> {
       try {
-        const recordedAt = new Date(input.recordedAtUnixMs);
-        const safeRecordedAt = Number.isNaN(recordedAt.valueOf()) ? new Date() : recordedAt;
-
-        const page = await notion.pages.create({
-          parent: { database_id: options.databaseId },
-          properties: {
-            Title: {
-              title: [{ type: "text", text: { content: formatTitle(input.recordedAtUnixMs) } }]
-            },
-            "Device ID": {
-              rich_text: [{ type: "text", text: { content: input.deviceId } }]
-            },
-            "Recorded At": {
-              date: { start: safeRecordedAt.toISOString() }
-            },
-            "Duration Sec": {
-              number: Math.round(input.durationMs / 1000)
-            },
-            Summary: {
-              rich_text: [{ type: "text", text: { content: truncate(input.summary, MAX_RICH_TEXT_CHARS) } }]
-            },
-            "Note ID": {
-              rich_text: [{ type: "text", text: { content: input.noteId } }]
-            },
-            Status: {
-              select: { name: "Processed" }
-            }
-          },
-          children: toTranscriptBlocks(input.transcript)
-        });
+        const request = buildVoiceNoteCreateRequest(input, options.databaseId);
+        const page = await notion.pages.create(request);
 
         return { notionPageId: page.id };
       } catch {

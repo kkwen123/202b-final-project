@@ -41,7 +41,6 @@ export interface ValidatedUploadRequest {
 }
 
 export interface NotionWriteInput {
-  deviceId: string;
   noteId: string;
   recordedAtUnixMs: number;
   durationMs: number;
