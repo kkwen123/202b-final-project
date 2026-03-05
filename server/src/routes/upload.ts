@@ -110,6 +110,7 @@ export function createUploadRouter(deps: UploadRouterDependencies): Router {
 
   router.post("/api/v1/notes/upload", deps.upload.single("audio"), async (req, res) => {
     const uploadedFilePath = req.file?.path;
+    const ingestedAtUnixMs = Date.now();
 
     try {
       if (!req.file?.path) {
@@ -135,6 +136,7 @@ export function createUploadRouter(deps: UploadRouterDependencies): Router {
       const notionResult = await deps.notionService.writeVoiceNote({
         noteId: validated.noteId,
         recordedAtUnixMs: validated.recordedAtUnixMs,
+        ingestedAtUnixMs,
         durationMs: validated.durationMs,
         transcript,
         summary

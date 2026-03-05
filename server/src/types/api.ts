@@ -43,6 +43,7 @@ export interface ValidatedUploadRequest {
 export interface NotionWriteInput {
   noteId: string;
   recordedAtUnixMs: number;
+  ingestedAtUnixMs?: number;
   durationMs: number;
   summary: string;
   transcript: string;

@@ -14,6 +14,8 @@ type VoiceNoteCreateRequest = Parameters<Client["pages"]["create"]>[0];
 
 const MAX_RICH_TEXT_CHARS = 1800;
 const MAX_BLOCK_CHARS = 1800;
+const MAX_TITLE_CHARS = 80;
+const MIN_REASONABLE_RECORDING_UNIX_MS = Date.UTC(2020, 0, 1);
 
 function truncate(text: string, maxChars: number): string {
   if (text.length <= maxChars) {
@@ -48,24 +50,94 @@ function toTranscriptBlocks(transcript: string) {
   }));
 }
 
-function formatTitle(recordedAtUnixMs: number): string {
-  const date = new Date(recordedAtUnixMs);
-  const iso = Number.isNaN(date.valueOf()) ? new Date().toISOString() : date.toISOString();
-  return `Voice Note ${iso.replace("T", " ").slice(0, 19)}`;
+function isReasonableRecordedTime(unixMs: number, nowUnixMs: number): boolean {
+  if (!Number.isFinite(unixMs) || unixMs <= 0) {
+    return false;
+  }
+  if (unixMs < MIN_REASONABLE_RECORDING_UNIX_MS) {
+    return false;
+  }
+  if (unixMs > nowUnixMs + 24 * 60 * 60 * 1000) {
+    return false;
+  }
+  return true;
+}
+
+function resolveRecordedDate(input: NotionWriteInput): Date {
+  const nowUnixMs = Date.now();
+  const candidate = isReasonableRecordedTime(input.recordedAtUnixMs, nowUnixMs)
+    ? input.recordedAtUnixMs
+    : input.ingestedAtUnixMs || nowUnixMs;
+
+  const date = new Date(candidate);
+  if (Number.isNaN(date.valueOf())) {
+    return new Date(nowUnixMs);
+  }
+
+  return date;
+}
+
+function cleanTitleCandidateLine(line: string): string {
+  return line
+    .replace(/^[\s*\-•\d.)]+/, "")
+    .replace(/^summary[:\-\s]*/i, "")
+    .replace(/^title[:\-\s]*/i, "")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function extractBriefTitle(summary: string, transcript: string): string | null {
+  const candidates: string[] = [];
+
+  for (const source of [summary, transcript]) {
+    if (!source?.trim()) {
+      continue;
+    }
+
+    const lines = source
+      .replace(/\r/g, "\n")
+      .split("\n")
+      .map((line) => cleanTitleCandidateLine(line))
+      .filter((line) => line.length > 0);
+
+    if (lines.length > 0) {
+      candidates.push(lines[0]);
+    }
+  }
+
+  for (const raw of candidates) {
+    const firstSentence = raw.split(/[.!?]/)[0]?.trim() || raw;
+    const cleaned = firstSentence.replace(/["`]/g, "").trim();
+    if (cleaned.length < 4) {
+      continue;
+    }
+    return truncate(cleaned, MAX_TITLE_CHARS);
+  }
+
+  return null;
+}
+
+function formatFallbackTitle(recordedAt: Date): string {
+  return `Voice Note ${recordedAt.toISOString().replace("T", " ").slice(0, 19)}`;
+}
+
+function buildTitle(input: NotionWriteInput, recordedAt: Date): string {
+  const brief = extractBriefTitle(input.summary, input.transcript);
+  return brief || formatFallbackTitle(recordedAt);
 }
 
 export function buildVoiceNoteCreateRequest(input: NotionWriteInput, databaseId: string): VoiceNoteCreateRequest {
-  const recordedAt = new Date(input.recordedAtUnixMs);
-  const safeRecordedAt = Number.isNaN(recordedAt.valueOf()) ? new Date() : recordedAt;
+  const recordedAt = resolveRecordedDate(input);
+  const title = buildTitle(input, recordedAt);
 
   return {
     parent: { database_id: databaseId },
     properties: {
       Title: {
-        title: [{ type: "text", text: { content: formatTitle(input.recordedAtUnixMs) } }]
+        title: [{ type: "text", text: { content: title } }]
       },
       "Recorded At": {
-        date: { start: safeRecordedAt.toISOString() }
+        date: { start: recordedAt.toISOString() }
       },
       "Duration Sec": {
         number: Math.round(input.durationMs / 1000)
