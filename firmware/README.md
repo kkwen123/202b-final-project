@@ -29,11 +29,14 @@ No third-party Arduino library is required for the current sketch.
 
 Default pins from `config.example.h`:
 
-- INMP441 `WS/LRCLK` -> `GPIO25`
-- INMP441 `SCK/BCLK` -> `GPIO26`
-- INMP441 `SD` -> `GPIO33`
-- SD module `CS` -> `GPIO5`
-- Button -> `GPIO13` (to GND, uses `INPUT_PULLUP`)
+- INMP441 `WS/LRCLK` -> `GPIO4`
+- INMP441 `SCK/BCLK` -> `GPIO5`
+- INMP441 `SD` -> `GPIO6`
+- SD module `CS` -> `GPIO10`
+- SD module `MOSI` -> `GPIO11`
+- SD module `SCK` -> `GPIO12`
+- SD module `MISO` -> `GPIO13`
+- Button -> `GPIO21` (to GND, uses `INPUT_PULLUP`)
 - LED -> `GPIO2`
 
 ## Runtime behavior

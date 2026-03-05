@@ -49,6 +49,39 @@ Optional overrides:
 3. Verify pin mapping for your board and wiring.
 4. Flash `firmware/voice_note_device.ino` via Arduino IDE.
 
+## Deploy Backend on Render
+
+This backend is ready for direct deployment as a Render web service.
+
+### Option A: Blueprint (`render.yaml`)
+
+1. Push this repo to GitHub.
+2. In Render, create a new service from repo and select Blueprint deploy.
+3. Render will pick up [render.yaml](/Users/kaiwentang/202b-final-project/render.yaml).
+4. Set environment variables in Render:
+   - `DEVICE_TOKEN`
+   - `OPENAI_API_KEY`
+   - `NOTION_API_KEY`
+   - `NOTION_DATABASE_ID`
+   - optional: `OPENAI_TRANSCRIPTION_MODEL`, `OPENAI_SUMMARY_MODEL`, `MAX_UPLOAD_BYTES`
+
+### Option B: Manual Web Service
+
+- Root directory: `server`
+- Build command: `npm ci && npm run build`
+- Start command: `npm start`
+- Health check path: `/health`
+
+### Firmware values after deployment
+
+In `firmware/config.h`, set:
+
+- `BACKEND_HOST` to your Render service domain (without `https://`)
+- `BACKEND_PORT` to `443`
+- `BACKEND_USE_TLS` to `true`
+
+Render free tier can cold-start after inactivity, so the first upload may be slower.
+
 ## API contract
 
 `POST /api/v1/notes/upload`

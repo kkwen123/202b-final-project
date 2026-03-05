@@ -34,6 +34,15 @@ export async function createApp(options: AppBootstrapOptions): Promise<Express> 
   });
 
   app.use(express.json({ limit: "1mb" }));
+  app.use((req, res, next) => {
+    const startedAt = Date.now();
+    res.on("finish", () => {
+      const durationMs = Date.now() - startedAt;
+      // eslint-disable-next-line no-console
+      console.log(`[HTTP] ${req.method} ${req.originalUrl} -> ${res.statusCode} (${durationMs}ms)`);
+    });
+    next();
+  });
   app.use(createHealthRouter());
   app.use(requireDeviceBearerToken(options.config.deviceToken));
   app.use(

@@ -23,6 +23,7 @@ static const uint32_t BUTTON_DEBOUNCE_MS = 35;
 static const uint32_t WIFI_CONNECT_TIMEOUT_MS = 12000;
 static const uint32_t HTTP_RESPONSE_TIMEOUT_MS = 30000;
 static const uint32_t QUEUE_RETRY_INTERVAL_MS = 15000;
+static const uint32_t BACKEND_HEALTH_TIMEOUT_MS = 5000;
 
 static const char *QUEUE_DIR = "/queue";
 
@@ -52,6 +53,7 @@ static int gStableButtonState = HIGH;
 static uint32_t gRecordingStartMs = 0;
 static uint32_t gLastQueueRetryMs = 0;
 static uint32_t gDataBytesWritten = 0;
+static uint32_t gLastButtonDebugMs = 0;
 
 static File gRecordingFile;
 static String gActiveNoteId;
@@ -91,6 +93,29 @@ uint64_t currentUnixMs() {
     return static_cast<uint64_t>(now) * 1000ULL;
   }
   return static_cast<uint64_t>(millis());
+}
+
+String wifiStatusString(wl_status_t status) {
+  switch (status) {
+    case WL_CONNECTED:
+      return "WL_CONNECTED";
+    case WL_NO_SHIELD:
+      return "WL_NO_SHIELD";
+    case WL_IDLE_STATUS:
+      return "WL_IDLE_STATUS";
+    case WL_NO_SSID_AVAIL:
+      return "WL_NO_SSID_AVAIL";
+    case WL_SCAN_COMPLETED:
+      return "WL_SCAN_COMPLETED";
+    case WL_CONNECT_FAILED:
+      return "WL_CONNECT_FAILED";
+    case WL_CONNECTION_LOST:
+      return "WL_CONNECTION_LOST";
+    case WL_DISCONNECTED:
+      return "WL_DISCONNECTED";
+    default:
+      return "WL_UNKNOWN(" + String(static_cast<int>(status)) + ")";
+  }
 }
 
 void writeWavHeader(File &file, uint32_t dataBytes) {
@@ -250,11 +275,7 @@ bool computeSha256ForFile(const String &path, String &sha256Out) {
 
   mbedtls_sha256_context ctx;
   mbedtls_sha256_init(&ctx);
-  if (mbedtls_sha256_starts_ret(&ctx, 0) != 0) {
-    mbedtls_sha256_free(&ctx);
-    file.close();
-    return false;
-  }
+  mbedtls_sha256_starts(&ctx, 0);
 
   uint8_t buffer[1024];
   while (file.available()) {
@@ -262,19 +283,11 @@ bool computeSha256ForFile(const String &path, String &sha256Out) {
     if (readLen == 0) {
       break;
     }
-    if (mbedtls_sha256_update_ret(&ctx, buffer, readLen) != 0) {
-      mbedtls_sha256_free(&ctx);
-      file.close();
-      return false;
-    }
+    mbedtls_sha256_update(&ctx, buffer, readLen);
   }
 
   uint8_t digest[32];
-  if (mbedtls_sha256_finish_ret(&ctx, digest) != 0) {
-    mbedtls_sha256_free(&ctx);
-    file.close();
-    return false;
-  }
+  mbedtls_sha256_finish(&ctx, digest);
 
   mbedtls_sha256_free(&ctx);
   file.close();
@@ -370,6 +383,7 @@ bool connectWiFi() {
     return true;
   }
 
+  logCode("N100", "Connecting to Wi-Fi SSID: " + String(WIFI_SSID));
   WiFi.mode(WIFI_STA);
   WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
 
@@ -378,10 +392,13 @@ bool connectWiFi() {
     delay(250);
   }
 
-  if (WiFi.status() != WL_CONNECTED) {
-    logCode("N101", "Wi-Fi connection timed out");
+  wl_status_t status = WiFi.status();
+  if (status != WL_CONNECTED) {
+    logCode("N101", "Wi-Fi connection failed: " + wifiStatusString(status));
     return false;
   }
+
+  logCode("N102", "Wi-Fi connected. IP=" + WiFi.localIP().toString() + ", RSSI=" + String(WiFi.RSSI()));
 
   if (!gClockSynced) {
     configTime(0, 0, "pool.ntp.org", "time.nist.gov");
@@ -399,9 +416,53 @@ bool connectWiFi() {
   return true;
 }
 
+bool checkBackendHealth(String &errorOut) {
+  WiFiClient client;
+  if (!client.connect(BACKEND_HOST, BACKEND_PORT)) {
+    errorOut = "Health check connect failed";
+    return false;
+  }
+
+  client.print(String("GET /health HTTP/1.1\r\n"));
+  client.print(String("Host: ") + BACKEND_HOST + ":" + BACKEND_PORT + "\r\n");
+  client.print("Connection: close\r\n\r\n");
+
+  String response;
+  uint32_t start = millis();
+  while ((client.connected() || client.available()) && (millis() - start) < BACKEND_HEALTH_TIMEOUT_MS) {
+    while (client.available()) {
+      response += static_cast<char>(client.read());
+    }
+    delay(5);
+  }
+  client.stop();
+
+  int statusCode = 0;
+  String body;
+  if (!parseHttpStatusAndBody(response, statusCode, body)) {
+    errorOut = "Health check response parse failed";
+    return false;
+  }
+
+  if (statusCode != 200) {
+    errorOut = "Health check HTTP status " + String(statusCode);
+    return false;
+  }
+
+  logCode("U109", "Backend health check passed");
+  return true;
+}
+
 bool readButtonPressedEdge() {
   int reading = digitalRead(BUTTON_PIN);
+
+  if ((millis() - gLastButtonDebugMs) > 1000) {
+    gLastButtonDebugMs = millis();
+    logCode("B101", "Button raw=" + String(reading) + ", stable=" + String(gStableButtonState));
+  }
+
   if (reading != gLastButtonReading) {
+    logCode("B102", "Button transition " + String(gLastButtonReading) + " -> " + String(reading));
     gLastDebounceMs = millis();
     gLastButtonReading = reading;
   }
@@ -409,6 +470,7 @@ bool readButtonPressedEdge() {
   if ((millis() - gLastDebounceMs) > BUTTON_DEBOUNCE_MS && reading != gStableButtonState) {
     gStableButtonState = reading;
     if (gStableButtonState == LOW) {
+      logCode("B103", "Button press edge detected");
       return true;
     }
   }
@@ -578,6 +640,7 @@ bool sendMultipartUpload(const NoteMeta &meta, int &httpStatus, String &response
 
   uint32_t fileSize = static_cast<uint32_t>(wav.size());
   String boundary = "----ESP32Boundary" + String(static_cast<uint32_t>(esp_random()), HEX);
+  logCode("U107", "Uploading note " + meta.noteId + ", bytes=" + String(fileSize));
 
   String prefix;
   prefix.reserve(1024);
@@ -614,8 +677,9 @@ bool sendMultipartUpload(const NoteMeta &meta, int &httpStatus, String &response
     client = &plainClient;
   }
 
+  logCode("U108", "Connecting backend " + String(BACKEND_HOST) + ":" + String(BACKEND_PORT));
   if (!client->connect(BACKEND_HOST, BACKEND_PORT)) {
-    errorText = "Failed to connect to backend";
+    errorText = "Failed to connect to backend at " + String(BACKEND_HOST) + ":" + String(BACKEND_PORT);
     wav.close();
     return false;
   }
@@ -649,7 +713,7 @@ bool sendMultipartUpload(const NoteMeta &meta, int &httpStatus, String &response
 
   String rawResponse;
   uint32_t waitStart = millis();
-  while (client->connected() && (millis() - waitStart) < HTTP_RESPONSE_TIMEOUT_MS) {
+  while ((client->connected() || client->available()) && (millis() - waitStart) < HTTP_RESPONSE_TIMEOUT_MS) {
     while (client->available()) {
       char c = static_cast<char>(client->read());
       rawResponse += c;
@@ -659,9 +723,11 @@ bool sendMultipartUpload(const NoteMeta &meta, int &httpStatus, String &response
   client->stop();
 
   if (!parseHttpStatusAndBody(rawResponse, httpStatus, responseBody)) {
-    errorText = "Could not parse backend response";
+    errorText = "Could not parse backend response, raw response length=" + String(rawResponse.length());
     return false;
   }
+
+  logCode("U110", "Backend upload response status=" + String(httpStatus) + ", body_len=" + String(responseBody.length()));
 
   return true;
 }
@@ -683,12 +749,14 @@ bool isUploadResponseConfirmed(const NoteMeta &meta, int httpStatus, const Strin
 bool findNextQueuedNote(String &noteIdOut) {
   File dir = SD.open(QUEUE_DIR);
   if (!dir || !dir.isDirectory()) {
+    logCode("Q100", "Queue directory missing or not readable");
     return false;
   }
 
   bool found = false;
   uint64_t bestCreated = UINT64_MAX;
   String bestId;
+  int scannedMetaCount = 0;
 
   File entry;
   while ((entry = dir.openNextFile())) {
@@ -698,6 +766,7 @@ bool findNextQueuedNote(String &noteIdOut) {
     if (!name.endsWith(".meta")) {
       continue;
     }
+    scannedMetaCount += 1;
 
     int slash = name.lastIndexOf('/');
     String fileOnly = slash >= 0 ? name.substring(slash + 1) : name;
@@ -722,9 +791,11 @@ bool findNextQueuedNote(String &noteIdOut) {
   }
 
   if (!found) {
+    logCode("Q101", "No queued notes found. meta_files_scanned=" + String(scannedMetaCount));
     return false;
   }
 
+  logCode("Q102", "Next queued note=" + bestId + ", meta_files_scanned=" + String(scannedMetaCount));
   noteIdOut = bestId;
   return true;
 }
@@ -744,9 +815,20 @@ bool uploadQueuedNote(const String &noteId) {
 
   if (!connectWiFi()) {
     meta.state = STATE_ERROR;
-    meta.lastError = "Wi-Fi unavailable";
+    meta.lastError = "Wi-Fi unavailable: " + wifiStatusString(WiFi.status());
     meta.attempts += 1;
     saveMeta(meta);
+    logCode("U111", "Wi-Fi unavailable for note " + noteId + ", attempts=" + String(meta.attempts));
+    return false;
+  }
+
+  String healthError;
+  if (!checkBackendHealth(healthError)) {
+    meta.state = STATE_ERROR;
+    meta.lastError = healthError;
+    meta.attempts += 1;
+    saveMeta(meta);
+    logCode("U112", "Backend health check failed: " + healthError);
     return false;
   }
 
@@ -763,16 +845,16 @@ bool uploadQueuedNote(const String &noteId) {
     meta.lastError = uploadError;
     meta.attempts += 1;
     saveMeta(meta);
-    logCode("U103", "Upload failed for " + noteId + ": " + uploadError);
+    logCode("U103", "Upload failed for " + noteId + ": " + uploadError + ", attempts=" + String(meta.attempts));
     return false;
   }
 
   if (!isUploadResponseConfirmed(meta, httpStatus, responseBody)) {
     meta.state = STATE_ERROR;
-    meta.lastError = "Backend rejected note or returned non-processed status";
+    meta.lastError = "Backend rejected note or returned non-processed status. HTTP " + String(httpStatus);
     meta.attempts += 1;
     saveMeta(meta);
-    logCode("U104", "Upload response not confirmed for " + noteId + ", status=" + String(httpStatus));
+    logCode("U104", "Upload response not confirmed for " + noteId + ", status=" + String(httpStatus) + ", body=" + responseBody);
     return false;
   }
 
@@ -793,14 +875,18 @@ void processQueueUntilBlocked() {
     return;
   }
 
+  logCode("Q103", "Queue processing start");
   while (true) {
     String nextNoteId;
     if (!findNextQueuedNote(nextNoteId)) {
+      logCode("Q104", "Queue processing done");
       return;
     }
 
+    logCode("Q105", "Attempting queued note " + nextNoteId);
     bool success = uploadQueuedNote(nextNoteId);
     if (!success) {
+      logCode("Q106", "Queue processing paused due to failure");
       return;
     }
 
@@ -816,9 +902,17 @@ void setup() {
   digitalWrite(LED_PIN, LOW);
 
   pinMode(BUTTON_PIN, INPUT_PULLUP);
+  delay(BUTTON_DEBOUNCE_MS + 5);
+  gLastButtonReading = digitalRead(BUTTON_PIN);
+  gStableButtonState = gLastButtonReading;
+  gLastDebounceMs = millis();
+  if (gStableButtonState == LOW) {
+    logCode("B100", "Button is LOW at boot; waiting for release");
+  }
 
   randomSeed(esp_random());
 
+  SPI.begin(SD_SCK_PIN, SD_MISO_PIN, SD_MOSI_PIN, SD_CS_PIN);
   if (!SD.begin(SD_CS_PIN)) {
     gSdReady = false;
     logCode("S100", "SD.begin failed");

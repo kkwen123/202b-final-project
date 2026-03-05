@@ -40,3 +40,25 @@
 - `I100`: I2S init failure (check mic pins).
 - `N101`: Wi-Fi timeout (check credentials/signal).
 - `U104`: backend response not confirmed (check API payload and token).
+
+## Upload diagnostics checklist
+
+1. Confirm queueing works:
+   - After stopping recording, look for `R109` in serial logs.
+   - This means `.wav` and `.meta` were finalized for upload.
+2. Confirm queue loop runs:
+   - Look for `Q103` then either `Q102` (note found) or `Q101` (none).
+3. Confirm Wi-Fi:
+   - `N102` means connected (`IP` and `RSSI` printed).
+   - `N101` means connection failed; inspect status string.
+4. Confirm backend reachable from ESP32:
+   - `U109` means `/health` succeeded.
+   - `U112` means health check failed before upload.
+5. Confirm upload request:
+   - `U107`/`U108` means upload attempt started.
+   - `U110` prints backend HTTP status and response length.
+6. Confirm backend request path:
+   - In backend terminal, look for `[HTTP] POST /api/v1/notes/upload`.
+   - Then look for `[UPLOAD]` stage logs (received/transcribed/summarized/notion_write_ok).
+7. Confirm final success:
+   - `U106` means upload confirmed and local files deleted.

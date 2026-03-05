@@ -1,0 +1,10 @@
+services:
+  - type: web
+    name: voice-note-server
+    runtime: node
+    rootDir: server
+    buildCommand: npm ci && npm run build
+    startCommand: npm start
+    healthCheckPath: /health
+    plan: free
+    autoDeploy: true

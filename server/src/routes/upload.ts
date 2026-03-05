@@ -117,13 +117,21 @@ export function createUploadRouter(deps: UploadRouterDependencies): Router {
       }
 
       const validated = validateBody(req);
+      // eslint-disable-next-line no-console
+      console.log(
+        `[UPLOAD] received note_id=${validated.noteId} device_id=${validated.deviceId} duration_ms=${validated.durationMs}`
+      );
       const computedHash = await sha256File(req.file.path);
       if (computedHash !== validated.sha256Hex) {
         throw new UploadApiError(400, "HASH_MISMATCH", true, "Uploaded file hash did not match sha256_hex");
       }
 
       const transcript = await deps.openaiService.transcribe(req.file.path);
+      // eslint-disable-next-line no-console
+      console.log(`[UPLOAD] transcribed note_id=${validated.noteId} transcript_chars=${transcript.length}`);
       const summary = await deps.openaiService.summarize(transcript);
+      // eslint-disable-next-line no-console
+      console.log(`[UPLOAD] summarized note_id=${validated.noteId} summary_chars=${summary.length}`);
       const notionResult = await deps.notionService.writeVoiceNote({
         noteId: validated.noteId,
         recordedAtUnixMs: validated.recordedAtUnixMs,
@@ -131,6 +139,8 @@ export function createUploadRouter(deps: UploadRouterDependencies): Router {
         transcript,
         summary
       });
+      // eslint-disable-next-line no-console
+      console.log(`[UPLOAD] notion_write_ok note_id=${validated.noteId} page_id=${notionResult.notionPageId}`);
 
       const payload: UploadSuccessResponse = {
         status: "processed",
@@ -142,6 +152,8 @@ export function createUploadRouter(deps: UploadRouterDependencies): Router {
 
       res.status(200).json(payload);
     } catch (error: unknown) {
+      // eslint-disable-next-line no-console
+      console.error("[UPLOAD] failed", error);
       sendUploadError(res as ResponseLike, error);
     } finally {
       await safeDeleteFile(uploadedFilePath);
