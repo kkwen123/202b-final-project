@@ -126,7 +126,7 @@ export function createUploadRouter(deps: UploadRouterDependencies): Router {
         throw new UploadApiError(400, "HASH_MISMATCH", true, "Uploaded file hash did not match sha256_hex");
       }
 
-      const transcript = await deps.openaiService.transcribe(req.file.path);
+      const transcript = await deps.openaiService.transcribe(req.file.path, req.file.originalname);
       // eslint-disable-next-line no-console
       console.log(`[UPLOAD] transcribed note_id=${validated.noteId} transcript_chars=${transcript.length}`);
       const summary = await deps.openaiService.summarize(transcript);

@@ -1,11 +1,12 @@
 import fs from "node:fs";
+import path from "node:path";
 
-import OpenAI from "openai";
+import OpenAI, { toFile } from "openai";
 
 import { UploadApiError } from "../types/api";
 
 export interface OpenAIService {
-  transcribe(filePath: string): Promise<string>;
+  transcribe(filePath: string, sourceFilename?: string): Promise<string>;
   summarize(transcript: string): Promise<string>;
 }
 
@@ -50,10 +51,15 @@ export function createOpenAIService(options: OpenAIServiceOptions): OpenAIServic
   const client = new OpenAI({ apiKey: options.apiKey });
 
   return {
-    async transcribe(filePath: string): Promise<string> {
+    async transcribe(filePath: string, sourceFilename?: string): Promise<string> {
       try {
+        const fallbackName = "voice-note.wav";
+        const baseName = sourceFilename ? path.basename(sourceFilename) : fallbackName;
+        const fileNameForUpload = /\.[a-z0-9]+$/i.test(baseName) ? baseName : `${baseName}.wav`;
+        const uploadable = await toFile(fs.createReadStream(filePath), fileNameForUpload, { type: "audio/wav" });
+
         const transcript = await client.audio.transcriptions.create({
-          file: fs.createReadStream(filePath),
+          file: uploadable,
           model: options.transcriptionModel,
           response_format: "text"
         });
