@@ -417,35 +417,45 @@ bool connectWiFi() {
 }
 
 bool checkBackendHealth(String &errorOut) {
-  WiFiClient client;
-  if (!client.connect(BACKEND_HOST, BACKEND_PORT)) {
-    errorOut = "Health check connect failed";
+  WiFiClient plainClient;
+  WiFiClientSecure secureClient;
+  Client *client = nullptr;
+
+  if (BACKEND_USE_TLS) {
+    secureClient.setInsecure();
+    client = &secureClient;
+  } else {
+    client = &plainClient;
+  }
+
+  if (!client->connect(BACKEND_HOST, BACKEND_PORT)) {
+    errorOut = "Health check connect failed to " + String(BACKEND_HOST) + ":" + String(BACKEND_PORT);
     return false;
   }
 
-  client.print(String("GET /health HTTP/1.1\r\n"));
-  client.print(String("Host: ") + BACKEND_HOST + ":" + BACKEND_PORT + "\r\n");
-  client.print("Connection: close\r\n\r\n");
+  client->print(String("GET /health HTTP/1.1\r\n"));
+  client->print(String("Host: ") + BACKEND_HOST + ":" + String(BACKEND_PORT) + "\r\n");
+  client->print("Connection: close\r\n\r\n");
 
   String response;
   uint32_t start = millis();
-  while ((client.connected() || client.available()) && (millis() - start) < BACKEND_HEALTH_TIMEOUT_MS) {
-    while (client.available()) {
-      response += static_cast<char>(client.read());
+  while ((client->connected() || client->available()) && (millis() - start) < BACKEND_HEALTH_TIMEOUT_MS) {
+    while (client->available()) {
+      response += static_cast<char>(client->read());
     }
     delay(5);
   }
-  client.stop();
+  client->stop();
 
   int statusCode = 0;
   String body;
   if (!parseHttpStatusAndBody(response, statusCode, body)) {
-    errorOut = "Health check response parse failed";
+    errorOut = "Health check response parse failed, raw_len=" + String(response.length());
     return false;
   }
 
   if (statusCode != 200) {
-    errorOut = "Health check HTTP status " + String(statusCode);
+    errorOut = "Health check HTTP status " + String(statusCode) + ", body=" + body;
     return false;
   }
 
