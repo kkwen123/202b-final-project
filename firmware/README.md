@@ -7,6 +7,19 @@ This folder contains the prototype firmware for the INMP441 voice note device.
 - `voice_note_device.ino`: main firmware sketch.
 - `config.example.h`: template for local secrets and board-specific pin mapping.
 
+## Required parts
+- ESP32-S3-WROOM-1 dev board
+- INMP441 I2S MEMS microphone module
+- MicroSD card (FAT32)
+- SPI MicroSD card module/adapter
+- Momentary push button
+- Single LED
+- Current-limiting resistor for LED (typically ~220Ω)
+- Breadboard
+- Jumper wires
+- USB power bank / 5V power source
+- USB Micro B to power bank cord
+
 ## Setup
 
 1. Copy `config.example.h` to `config.h` in this folder.
